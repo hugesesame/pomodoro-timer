@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>宇宙探査タイマー | Deep Space Pomodoro</title>
+<title>Deep Space Pomodoro Timer</title>
 <style>
   :root{
     --ui-bg: rgba(10, 14, 30, 0.55);
@@ -96,7 +96,7 @@
     position: relative; width: min(72vw, 300px); height: min(72vw, 300px);
     display:flex; align-items:center; justify-content:center;
   }
-  .timer-ring-wrap svg{ position:absolute; inset:0; width:100%; height:100%; transform: rotate(-90deg); }
+  .timer-ring-wrap svg{ position:absolute; inset:0; width:100%; height:100%; transform: rotate(-90deg); overflow: visible; }
   .ring-bg{ fill:none; stroke: rgba(255,255,255,0.12); stroke-width:4; }
   .ring-fg{ fill:none; stroke: var(--accent); stroke-width:4; stroke-linecap:round; transition: stroke .6s ease; filter: drop-shadow(0 0 6px currentColor); }
 
@@ -160,6 +160,21 @@
   }
   .log-entry .name{ color: var(--accent); font-weight:600; }
   .log-entry .meta{ color:var(--text-dim); font-size:11px; }
+
+  .milestone-summary{
+    margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.12);
+  }
+  .milestone-total{ font-size:12px; color:var(--text-dim); line-height:1.5; }
+  .milestone-total strong{ font-size:20px; color:var(--text); font-variant-numeric: tabular-nums; }
+  .milestone-next{ font-size:11px; color:var(--accent); margin-top:6px; }
+  .milestone-list{ display:flex; flex-direction:column; gap:4px; margin-top:10px; }
+  .milestone-row{
+    display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); opacity:.45;
+  }
+  .milestone-row.reached{ opacity:1; color:var(--text); }
+  .milestone-icon{ font-size:14px; }
+  .milestone-name{ flex:1; }
+  .milestone-km{ font-size:11px; color:var(--text-dim); }
   .modal-close{
     display:block; margin: 14px auto 0; background:none; border:1px solid var(--ui-border); color:var(--text);
     padding:8px 24px; border-radius:999px; font-size:13px;
@@ -215,17 +230,18 @@
 <div class="app">
   <header class="topbar">
     <div>
-      <div class="brand">宇宙探査タイマー</div>
-      <div class="depth-readout" id="depthReadout">地表 高度 0 km</div>
+      <div class="brand">Deep Space Timer</div>
+      <div class="depth-readout" id="depthReadout">Surface · Altitude 0 km</div>
     </div>
     <div class="iconbar">
-      <button class="icon-btn" id="btnLog" title="航海日誌" aria-label="航海日誌を開く">🗂</button>
-      <button class="icon-btn" id="btnSound" title="音のON/OFF" aria-label="サウンドのオン・オフ切り替え" aria-pressed="true">🔊</button>
+      <button class="icon-btn" id="btnLog" title="Voyage Log" aria-label="Open voyage log">🗂</button>
+      <button class="icon-btn" id="btnSound" title="Sound On/Off" aria-label="Toggle sound on/off" aria-pressed="true">🔊</button>
+      <button class="icon-btn" id="btnFullscreen" title="Fullscreen" aria-label="Toggle fullscreen" aria-pressed="false">⛶</button>
     </div>
   </header>
 
   <main>
-    <div class="session-label work" id="sessionLabel">集中セッション</div>
+    <div class="session-label work" id="sessionLabel">Focus Session</div>
 
     <div class="timer-ring-wrap" id="ringWrap">
       <svg viewBox="0 0 120 120" aria-hidden="true">
@@ -241,18 +257,18 @@
     <div class="starname" id="starName">&nbsp;</div>
 
     <div class="controls">
-      <button class="btn" id="btnReset" aria-label="タイマーをリセット">リセット</button>
-      <button class="btn primary" id="btnStart" aria-label="タイマーを開始">発進</button>
+      <button class="btn" id="btnReset" aria-label="Reset timer">Reset</button>
+      <button class="btn primary" id="btnStart" aria-label="Start timer">Launch</button>
     </div>
 
     <div class="settings-row">
-      <label>集中(分)
+      <label>Focus (min)
         <input type="number" id="cfgWork" min="1" max="120" value="25">
       </label>
-      <label>休憩(分)
+      <label>Break (min)
         <input type="number" id="cfgBreak" min="1" max="60" value="5">
       </label>
-      <label>長休憩(分)
+      <label>Long Break (min)
         <input type="number" id="cfgLong" min="1" max="90" value="15">
       </label>
     </div>
@@ -260,7 +276,7 @@
 
   <!-- Desktop side panel (mirrors modal content, shown via media query) -->
   <aside class="side-log" id="sideLog" style="display:none;">
-    <h2>航海日誌</h2>
+    <h2>Voyage Log</h2>
     <div id="sideLogList"></div>
   </aside>
 
@@ -269,10 +285,10 @@
 
 <div class="modal-overlay hidden log-modal" id="logModal" role="dialog" aria-modal="true" aria-labelledby="logModalTitle">
   <div class="modal-sheet">
-    <h2 id="logModalTitle">航海日誌</h2>
+    <h2 id="logModalTitle">Voyage Log</h2>
     <div id="logList"></div>
-    <button class="log-clear" id="btnClearLog">記録をすべて消去</button>
-    <button class="modal-close" id="btnCloseLog">閉じる</button>
+    <button class="log-clear" id="btnClearLog">Clear All Records</button>
+    <button class="modal-close" id="btnCloseLog">Close</button>
   </div>
 </div>
 
@@ -301,15 +317,15 @@ function hashStringToSeed(str){
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-const NEBULA_ADJ = ["静寂の","蒼き","囁く","彷徨う","黄金の","凍てつく","忘却の","燃える","透明な","眠れる","歌う","遠い"];
-const NEBULA_NOUN = ["カシオペア","エリダヌス","オリオン","竜骨","孔雀","羅針盤","天狼","昴","碧眼","竪琴","白鯨","蜃気楼"];
-const NEBULA_SUFFIX = ["星雲","彗星群","星団","銀河","星海","深宇宙域"];
+const NEBULA_ADJ = ["Silent","Azure","Whispering","Wandering","Golden","Frozen","Forgotten","Burning","Transparent","Sleeping","Singing","Distant"];
+const NEBULA_NOUN = ["Cassiopeia","Eridanus","Orion","Carina","Pavo","Compass","Sirius","Pleiades","Azure Eye","Lyra","White Whale","Mirage"];
+const NEBULA_SUFFIX = ["Nebula","Comet Swarm","Star Cluster","Galaxy","Starsea","Deep Field"];
 
 function generateStarName(rng){
   const a = NEBULA_ADJ[Math.floor(rng()*NEBULA_ADJ.length)];
   const n = NEBULA_NOUN[Math.floor(rng()*NEBULA_NOUN.length)];
   const s = NEBULA_SUFFIX[Math.floor(rng()*NEBULA_SUFFIX.length)];
-  return a + n + s;
+  return a + " " + n + " " + s;
 }
 
 function pad2(n){ return String(n).padStart(2,"0"); }
@@ -354,6 +370,48 @@ function saveLog(log){
   try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){}
 }
 
+/* ===================== Cumulative voyage distance (odometer, never resets) =====================
+   This is separate from the per-session "current position" readout in the header, which resets to
+   Earth every session. Total distance is an all-time odometer: it keeps growing across every
+   completed session, even while the current voyage has already returned home. Stored independently
+   from the (length-capped) voyage log so old entries scrolling off never shrinks the total. */
+const TOTAL_FOCUS_MIN_KEY = "spacetimer.totalFocusMin.v1";
+const KM_PER_FOCUS_MIN = 4000; // stylized rate, tuned for pacing rather than real astronomical ratios
+
+const MILESTONES = [
+  { id:"moon",    icon:"🌕", name:"The Moon",           km: 400000 },
+  { id:"mars",    icon:"🔴", name:"Mars",                km: 4000000 },
+  { id:"jupiter", icon:"🪐", name:"Jupiter",             km: 40000000 },
+  { id:"edge",    icon:"🌌", name:"Solar System Edge",   km: 400000000 },
+  { id:"proxima", icon:"⭐", name:"Proxima Centauri",    km: 4000000000 }
+];
+
+function loadTotalFocusMin(){
+  try{ return Number(localStorage.getItem(TOTAL_FOCUS_MIN_KEY)) || 0; }catch(e){ return 0; }
+}
+function saveTotalFocusMin(v){
+  try{ localStorage.setItem(TOTAL_FOCUS_MIN_KEY, String(v)); }catch(e){}
+}
+// One-time backfill so users who already logged sessions before this feature existed don't start at zero.
+function ensureTotalFocusMinInitialized(){
+  if(localStorage.getItem(TOTAL_FOCUS_MIN_KEY) === null){
+    const backfill = loadLog().reduce((sum, e) => sum + e.minutes, 0);
+    saveTotalFocusMin(backfill);
+  }
+}
+function checkMilestonesCrossed(beforeMin, afterMin){
+  const beforeKm = beforeMin * KM_PER_FOCUS_MIN;
+  const afterKm = afterMin * KM_PER_FOCUS_MIN;
+  const crossed = MILESTONES.filter(m => beforeKm < m.km && afterKm >= m.km);
+  // Delayed so it doesn't overwrite the "session complete" banner before it's been seen
+  // (both fire from the same completeSession() call when Notification permission isn't granted).
+  crossed.forEach((m, i) => {
+    setTimeout(() => {
+      notifySessionDone(`Milestone Reached: ${m.name}`, `Your total voyage distance has passed ${m.name} (${m.km.toLocaleString()} km).`);
+    }, 4200 * (i + 1));
+  });
+}
+
 const DEFAULTS = {
   workMin: 25, breakMin: 5, longBreakMin: 15,
   sessionIndex: 0,      // 0-based count of completed work sessions (for long-break cadence)
@@ -391,6 +449,7 @@ const el = {
   btnReset: document.getElementById("btnReset"),
   btnLog: document.getElementById("btnLog"),
   btnSound: document.getElementById("btnSound"),
+  btnFullscreen: document.getElementById("btnFullscreen"),
   logModal: document.getElementById("logModal"),
   logList: document.getElementById("logList"),
   sideLogList: document.getElementById("sideLogList"),
@@ -605,7 +664,7 @@ if(isWindows){
       if(d < bestDist){ hit = s; bestDist = d; }
     }
     if(hit){
-      el.starTooltip.textContent = `恒星 深度層 ${(hit.layer*100|0)}% ・ 光度 ${(hit.r).toFixed(1)}`;
+      el.starTooltip.textContent = `Star · Depth Layer ${(hit.layer*100|0)}% · Magnitude ${(hit.r).toFixed(1)}`;
       el.starTooltip.style.left = (mx+14)+"px";
       el.starTooltip.style.top = (my+14)+"px";
       el.starTooltip.classList.add("show");
@@ -698,6 +757,39 @@ el.btnSound.addEventListener("click", ()=>{
 el.btnSound.textContent = state.soundOn ? "🔊" : "🔇";
 el.btnSound.setAttribute("aria-pressed", String(state.soundOn));
 
+/* ===================== Fullscreen ===================== */
+// Vendor-prefixed lookups: iOS Safari has no element Fullscreen API at all, so the button
+// is hidden entirely there via feature detection rather than left as a dead control.
+function fsRequestFn(elm){
+  return elm.requestFullscreen || elm.webkitRequestFullscreen || elm.msRequestFullscreen || null;
+}
+function fsExitFn(){
+  return document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen || null;
+}
+function fsElement(){
+  return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+}
+const fsSupported = !!(fsRequestFn(document.documentElement) && fsExitFn());
+if(!fsSupported){
+  el.btnFullscreen.style.display = "none";
+}else{
+  el.btnFullscreen.addEventListener("click", ()=>{
+    if(fsElement()){
+      fsExitFn().call(document);
+    }else{
+      const p = fsRequestFn(document.documentElement).call(document.documentElement);
+      if(p && p.catch) p.catch(()=>{});
+    }
+  });
+  ["fullscreenchange","webkitfullscreenchange","MSFullscreenChange"].forEach(evt=>{
+    document.addEventListener(evt, ()=>{
+      const active = !!fsElement();
+      el.btnFullscreen.textContent = active ? "⛝" : "⛶";
+      el.btnFullscreen.setAttribute("aria-pressed", String(active));
+    });
+  });
+}
+
 /* ===================== Notification API ===================== */
 
 let notifyPermission = (window.Notification && Notification.permission) || "unsupported";
@@ -749,7 +841,7 @@ function triggerSignalGlitch(){
   el.glitch.classList.remove("active");
   void el.glitch.offsetWidth; // restart animation
   el.glitch.classList.add("active");
-  showNotice("信号を再確立しました", 1800);
+  showNotice("Signal re-established", 1800);
 }
 
 /* ===================== Timer engine ===================== */
@@ -764,18 +856,18 @@ function currentTotalForMode(mode){
 
 function updateModeLabel(){
   const isLong = state.mode === "longbreak";
-  el.sessionLabel.textContent = state.mode === "work" ? "集中セッション" : (isLong ? "長距離帰還休憩" : "地球帰還休憩");
+  el.sessionLabel.textContent = state.mode === "work" ? "Focus Session" : (isLong ? "Long Return Break" : "Return Break");
   el.sessionLabel.className = "session-label " + (state.mode === "work" ? "work" : "break");
 }
 
 function updateDepthReadout(){
   if(state.mode !== "work"){
-    el.depthReadout.textContent = "地球圏 帰還中";
+    el.depthReadout.textContent = "Returning to Earth Orbit";
     return;
   }
   const depth = depthFactor();
-  const km = Math.round(depth*4.2e8); // stylized distance up to ~ Moon distance scale
-  el.depthReadout.textContent = `深宇宙 到達距離 ${km.toLocaleString()} km`;
+  const km = Math.round(depth*4.2e8); // stylized distance, purely cosmetic — resets to 0 each work session
+  el.depthReadout.textContent = `Deep Space · Distance ${km.toLocaleString()} km`;
 }
 
 function updateCycleDots(){
@@ -791,7 +883,7 @@ function updateCycleDots(){
 }
 
 function updateStarNameDisplay(){
-  el.starName.textContent = state.mode === "work" ? ("観測領域: " + currentStarName) : "帰還航路";
+  el.starName.textContent = state.mode === "work" ? ("Observing: " + currentStarName) : "Return Trajectory";
 }
 
 function render(){
@@ -806,10 +898,10 @@ function render(){
   updateDepthReadout();
   updateCycleDots();
   updateStarNameDisplay();
-  const startLabel = state.running ? "一時停止" : (state.remainingSec === state.totalSec ? "発進" : "再開");
+  const startLabel = state.running ? "Pause" : (state.remainingSec === state.totalSec ? "Launch" : "Resume");
   el.btnStart.textContent = startLabel;
   el.btnStart.setAttribute("aria-label", startLabel);
-  document.title = formatTime(state.remainingSec) + " · 宇宙探査タイマー";
+  document.title = formatTime(state.remainingSec) + " · Deep Space Timer";
 }
 
 function mobilePropulsionVibration(){
@@ -845,10 +937,10 @@ function completeSession(){
   if(finishedMode === "work"){
     logVoyage(finishedWorkMinutes, currentStarName);
     vibrateSafe([80,60,80,60,160]);
-    notifySessionDone("観測完了", `「${currentStarName}」の観測を終え、地球へ帰還します。`);
+    notifySessionDone("Observation Complete", `Finished observing "${currentStarName}" — returning to Earth.`);
   } else {
     vibrateSafe([40,30,40]);
-    notifySessionDone("帰還完了", "地球圏を出発し、新たな深宇宙探査へ向かいます。");
+    notifySessionDone("Return Complete", "Departing Earth orbit for a new deep space expedition.");
   }
 
   playChime();
@@ -878,6 +970,10 @@ function completeSession(){
 }
 
 function logVoyage(minutes, name){
+  const beforeMin = loadTotalFocusMin();
+  const afterMin = beforeMin + minutes;
+  saveTotalFocusMin(afterMin);
+
   const log = loadLog();
   log.unshift({
     ts: Date.now(),
@@ -887,6 +983,7 @@ function logVoyage(minutes, name){
   if(log.length > 200) log.length = 200;
   saveLog(log);
   renderLog();
+  checkMilestonesCrossed(beforeMin, afterMin);
 }
 
 function startTimer(){
@@ -954,29 +1051,59 @@ function applyConfigChange(){
   inp.addEventListener("change", applyConfigChange);
 });
 
-/* ===================== 航海日誌 (Voyage Log) UI ===================== */
+/* ===================== Voyage Log UI ===================== */
 
 function fmtDate(ts){
   const d = new Date(ts);
   return `${d.getFullYear()}/${pad2(d.getMonth()+1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function renderMilestoneSummary(){
+  const totalMin = loadTotalFocusMin();
+  const totalKm = totalMin * KM_PER_FOCUS_MIN;
+  const reachedIdx = MILESTONES.reduce((acc, m, i) => totalKm >= m.km ? i : acc, -1);
+  const next = MILESTONES[reachedIdx + 1];
+
+  const rows = MILESTONES.map((m, i) => `
+    <div class="milestone-row ${i <= reachedIdx ? "reached" : ""}">
+      <span class="milestone-icon">${m.icon}</span>
+      <span class="milestone-name">${m.name}</span>
+      <span class="milestone-km">${m.km.toLocaleString()} km</span>
+    </div>
+  `).join("");
+
+  const progress = next
+    ? `<div class="milestone-next">Next: ${next.name} — ${Math.max(0, Math.round(next.km - totalKm)).toLocaleString()} km to go</div>`
+    : `<div class="milestone-next">Beyond the known charts — the voyage continues.</div>`;
+
+  return `
+    <div class="milestone-summary">
+      <div class="milestone-total">Total Voyage Distance<br><strong>${Math.round(totalKm).toLocaleString()} km</strong></div>
+      ${progress}
+      <div class="milestone-list">${rows}</div>
+    </div>
+  `;
+}
+
 function renderLog(){
   const log = loadLog();
-  const html = log.length === 0
-    ? '<div class="log-empty">まだ航海記録がありません。<br>最初の集中セッションを完了させましょう。</div>'
+  const summaryHtml = renderMilestoneSummary();
+  const entriesHtml = log.length === 0
+    ? '<div class="log-empty">No voyage records yet.<br>Complete your first focus session to begin.</div>'
     : log.map(entry => `
         <div class="log-entry">
           <div>
             <div class="name">${entry.name}</div>
             <div class="meta">${fmtDate(entry.ts)}</div>
           </div>
-          <div class="meta">${entry.minutes}分 集中</div>
+          <div class="meta">${entry.minutes} min focus</div>
         </div>
       `).join("");
+  const html = summaryHtml + entriesHtml;
   el.logList.innerHTML = html;
   el.sideLogList.innerHTML = html;
 }
+ensureTotalFocusMinInitialized();
 renderLog();
 
 el.btnLog.addEventListener("click", ()=>{
@@ -989,7 +1116,7 @@ el.logModal.addEventListener("click", (e)=>{
   if(e.target === el.logModal) el.logModal.classList.add("hidden");
 });
 el.btnClearLog.addEventListener("click", ()=>{
-  if(confirm("すべての航海記録を消去しますか？")){
+  if(confirm("Clear all voyage records?")){
     saveLog([]);
     renderLog();
   }
@@ -1006,11 +1133,11 @@ window.addEventListener("resize", applyResponsiveLogVisibility);
 /* ===================== Hint text per device ===================== */
 
 if(isTouchPrimary){
-  el.hintText.textContent = "対応端末では振動で推進エンジンの合図をお届けします。";
+  el.hintText.textContent = "On supported devices, feel the engine thrusters through vibration.";
 } else if(isMac){
-  el.hintText.textContent = "星空をドラッグすると視点がパララックスで動きます。";
+  el.hintText.textContent = "Drag the starfield to shift your view with parallax.";
 } else if(isWindows){
-  el.hintText.textContent = "星にマウスを合わせると詳細情報が表示されます。通知を許可すると帰還合図をお届けします。";
+  el.hintText.textContent = "Hover a star for details. Allow notifications to get an alert when you return.";
 } else {
   el.hintText.textContent = "";
 }
