@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>宇宙探査タイマー | Deep Space Pomodoro</title>
+<style>
+  :root{
+    --ui-bg: rgba(10, 14, 30, 0.55);
+    --ui-border: rgba(160, 200, 255, 0.25);
+    --accent: #7fd8ff;
+    --accent-warm: #ffb37f;
+    --text: #eaf6ff;
+    --text-dim: #9fb3d1;
+    --radius: 16px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{ box-sizing: border-box; }
+  button:focus-visible, input:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  html, body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:#000;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Segoe UI", Roboto, sans-serif;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  #starfield{
+    position: fixed; inset:0; width:100%; height:100%; display:block; z-index:0;
+    transition: filter .6s ease;
+  }
+  #signalGlitch{
+    position: fixed; inset:0; z-index:5; pointer-events:none; opacity:0;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.02) 2px, transparent 4px);
+    mix-blend-mode: screen;
+  }
+  #signalGlitch.active{ animation: glitchFlicker .5s steps(6) 1; }
+  @keyframes glitchFlicker{
+    0%{opacity:0; transform: translateX(0);}
+    15%{opacity:.9; transform: translateX(-6px);}
+    30%{opacity:.2; transform: translateX(4px);}
+    45%{opacity:.8; transform: translateX(-3px);}
+    60%{opacity:.1; transform: translateX(2px);}
+    80%{opacity:.5; transform: translateX(-1px);}
+    100%{opacity:0; transform: translateX(0);}
+  }
+
+  .app{
+    position: relative; z-index: 2;
+    min-height: 100dvh;
+    display:flex; flex-direction:column;
+    padding: calc(14px + var(--safe-top)) 14px calc(14px + var(--safe-bottom));
+    gap: 12px;
+  }
+
+  header.topbar{
+    display:flex; justify-content:space-between; align-items:center;
+    gap:8px;
+  }
+  .brand{
+    font-size: 13px; letter-spacing: .12em; color: var(--text-dim); text-transform: uppercase;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .depth-readout{
+    font-size: 12px; color: var(--accent); text-align:right; line-height:1.4;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  .iconbar{ display:flex; gap:8px; }
+  .icon-btn{
+    background: var(--ui-bg); border:1px solid var(--ui-border); color: var(--text);
+    border-radius: 10px; width:38px; height:38px; display:flex; align-items:center; justify-content:center;
+    font-size:16px; cursor:pointer; backdrop-filter: blur(6px);
+  }
+  .icon-btn:active{ transform: scale(.94); }
+
+  main{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+    min-height:0;
+  }
+
+  .session-label{
+    font-size: 13px; letter-spacing:.18em; text-transform:uppercase; color: var(--text-dim);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .session-label.work{ color: var(--accent); }
+  .session-label.break{ color: var(--accent-warm); }
+
+  .timer-ring-wrap{
+    position: relative; width: min(72vw, 300px); height: min(72vw, 300px);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .timer-ring-wrap svg{ position:absolute; inset:0; width:100%; height:100%; transform: rotate(-90deg); }
+  .ring-bg{ fill:none; stroke: rgba(255,255,255,0.12); stroke-width:4; }
+  .ring-fg{ fill:none; stroke: var(--accent); stroke-width:4; stroke-linecap:round; transition: stroke .6s ease; filter: drop-shadow(0 0 6px currentColor); }
+
+  .timer-center{ text-align:center; }
+  .timer-display{
+    font-size: clamp(2.4rem, 11vw, 3.4rem); font-variant-numeric: tabular-nums; font-weight:600; letter-spacing:.02em;
+    text-shadow: 0 0 18px rgba(127,216,255,0.5);
+  }
+  .cycle-dots{ display:flex; gap:6px; justify-content:center; margin-top:8px; }
+  .cycle-dots span{ width:7px; height:7px; border-radius:50%; background: rgba(255,255,255,0.2); }
+  .cycle-dots span.done{ background: var(--accent); box-shadow:0 0 6px var(--accent); }
+  .cycle-dots span.current{ background: var(--accent-warm); box-shadow:0 0 8px var(--accent-warm); }
+
+  .starname{
+    font-size: 12px; color: var(--text-dim); min-height: 16px; text-align:center;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  .controls{ display:flex; gap:12px; justify-content:center; align-items:center; }
+  .btn{
+    border:1px solid var(--ui-border); background: var(--ui-bg); color: var(--text);
+    padding: 12px 20px; border-radius: 999px; font-size:14px; letter-spacing:.05em;
+    cursor:pointer; backdrop-filter: blur(6px); min-width:96px;
+  }
+  .btn.primary{ background: linear-gradient(135deg, var(--accent), #4a8fd6); color:#04101f; font-weight:700; border:none; }
+  .btn:active{ transform: scale(.96); }
+  .btn.small{ padding: 8px 14px; font-size:12px; min-width:auto; }
+
+  .settings-row{
+    display:flex; gap:10px; justify-content:center; flex-wrap:wrap; font-size:12px; color:var(--text-dim);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .settings-row label{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .settings-row input[type=number]{
+    width:64px; background: var(--ui-bg); border:1px solid var(--ui-border); color:var(--text);
+    border-radius:8px; padding:6px; text-align:center; font-size:14px;
+  }
+
+  footer.hint{
+    text-align:center; font-size:11px; color: var(--text-dim); opacity:.7; min-height:14px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  /* Modal (log & tooltip) */
+  .modal-overlay{
+    position:fixed; inset:0; background: rgba(0,0,4,0.72); backdrop-filter: blur(4px);
+    z-index: 20; display:flex; align-items:flex-end; justify-content:center;
+  }
+  .modal-overlay.hidden{ display:none; }
+  .modal-sheet{
+    background: linear-gradient(180deg, rgba(15,20,45,0.97), rgba(4,6,18,0.99));
+    border:1px solid var(--ui-border); border-radius: 20px 20px 0 0;
+    width:100%; max-width:640px; max-height:80vh; overflow-y:auto;
+    padding: 18px 18px calc(18px + var(--safe-bottom));
+  }
+  .modal-sheet h2{ margin:0 0 12px; font-size:16px; letter-spacing:.08em; color:var(--accent); }
+  .log-empty{ color:var(--text-dim); font-size:13px; text-align:center; padding: 30px 0; }
+  .log-entry{
+    display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.08);
+    font-size:13px;
+  }
+  .log-entry .name{ color: var(--accent); font-weight:600; }
+  .log-entry .meta{ color:var(--text-dim); font-size:11px; }
+  .modal-close{
+    display:block; margin: 14px auto 0; background:none; border:1px solid var(--ui-border); color:var(--text);
+    padding:8px 24px; border-radius:999px; font-size:13px;
+  }
+  .log-clear{
+    display:block; margin: 4px auto 0; background:none; border:none; color:var(--text-dim); font-size:11px; text-decoration:underline;
+  }
+
+  #starTooltip{
+    position: fixed; z-index: 15; pointer-events:none; opacity:0; transition: opacity .15s ease;
+    background: rgba(8,12,28,0.9); border:1px solid var(--ui-border); border-radius:8px;
+    padding:6px 10px; font-size:11px; color:var(--accent); white-space:nowrap;
+  }
+  #starTooltip.show{ opacity:1; }
+
+  .notice-banner{
+    position:fixed; top: calc(10px + var(--safe-top)); left:50%; transform: translateX(-50%);
+    background: rgba(20,28,50,0.9); border:1px solid var(--ui-border); color:var(--text);
+    padding:8px 14px; border-radius:10px; font-size:12px; z-index:30; max-width: 90vw; text-align:center;
+    opacity:0; transition: opacity .3s ease; pointer-events:none;
+  }
+  .notice-banner.show{ opacity:1; }
+
+  /* Desktop / laptop layout */
+  @media (min-width: 860px) and (pointer: fine){
+    .app{
+      display:grid; grid-template-columns: 1fr 340px; grid-template-rows: auto 1fr; gap: 20px 24px;
+      padding: 28px 32px;
+      max-width: 1400px; margin:0 auto;
+    }
+    header.topbar{ grid-column: 1 / 3; }
+    main{ grid-column: 1; }
+    .side-log{
+      grid-column: 2; grid-row: 2;
+      background: var(--ui-bg); border:1px solid var(--ui-border); border-radius: var(--radius);
+      padding:18px; overflow-y:auto; backdrop-filter: blur(8px);
+      display:flex; flex-direction:column;
+    }
+    .side-log h2{ margin:0 0 12px; font-size:15px; letter-spacing:.08em; color:var(--accent); }
+    .modal-overlay.log-modal{ display:none !important; }
+    .timer-ring-wrap{ width:min(30vw, 340px); height:min(30vw,340px); }
+    footer.hint{ grid-column: 1/3; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="starfield" aria-hidden="true"></canvas>
+<div id="signalGlitch" aria-hidden="true"></div>
+<div id="starTooltip" aria-hidden="true"></div>
+<div class="notice-banner" id="noticeBanner" role="status" aria-live="polite"></div>
+
+<div class="app">
+  <header class="topbar">
+    <div>
+      <div class="brand">宇宙探査タイマー</div>
+      <div class="depth-readout" id="depthReadout">地表 高度 0 km</div>
+    </div>
+    <div class="iconbar">
+      <button class="icon-btn" id="btnLog" title="航海日誌" aria-label="航海日誌を開く">🗂</button>
+      <button class="icon-btn" id="btnSound" title="音のON/OFF" aria-label="サウンドのオン・オフ切り替え" aria-pressed="true">🔊</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="session-label work" id="sessionLabel">集中セッション</div>
+
+    <div class="timer-ring-wrap" id="ringWrap">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="ring-bg" cx="60" cy="60" r="54"></circle>
+        <circle class="ring-fg" id="ringFg" cx="60" cy="60" r="54" stroke-dasharray="339.292" stroke-dashoffset="0"></circle>
+      </svg>
+      <div class="timer-center">
+        <div class="timer-display" id="timerDisplay" role="timer" aria-live="off">25:00</div>
+        <div class="cycle-dots" id="cycleDots" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <div class="starname" id="starName">&nbsp;</div>
+
+    <div class="controls">
+      <button class="btn" id="btnReset" aria-label="タイマーをリセット">リセット</button>
+      <button class="btn primary" id="btnStart" aria-label="タイマーを開始">発進</button>
+    </div>
+
+    <div class="settings-row">
+      <label>集中(分)
+        <input type="number" id="cfgWork" min="1" max="120" value="25">
+      </label>
+      <label>休憩(分)
+        <input type="number" id="cfgBreak" min="1" max="60" value="5">
+      </label>
+      <label>長休憩(分)
+        <input type="number" id="cfgLong" min="1" max="90" value="15">
+      </label>
+    </div>
+  </main>
+
+  <!-- Desktop side panel (mirrors modal content, shown via media query) -->
+  <aside class="side-log" id="sideLog" style="display:none;">
+    <h2>航海日誌</h2>
+    <div id="sideLogList"></div>
+  </aside>
+
+  <footer class="hint" id="hintText"></footer>
+</div>
+
+<div class="modal-overlay hidden log-modal" id="logModal" role="dialog" aria-modal="true" aria-labelledby="logModalTitle">
+  <div class="modal-sheet">
+    <h2 id="logModalTitle">航海日誌</h2>
+    <div id="logList"></div>
+    <button class="log-clear" id="btnClearLog">記録をすべて消去</button>
+    <button class="modal-close" id="btnCloseLog">閉じる</button>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ===================== Utilities ===================== */
+
+// Mulberry32 seeded PRNG — deterministic star field per session seed
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashStringToSeed(str){
+  let h = 1779033703 ^ str.length;
+  for (let i=0;i<str.length;i++){
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+const NEBULA_ADJ = ["静寂の","蒼き","囁く","彷徨う","黄金の","凍てつく","忘却の","燃える","透明な","眠れる","歌う","遠い"];
+const NEBULA_NOUN = ["カシオペア","エリダヌス","オリオン","竜骨","孔雀","羅針盤","天狼","昴","碧眼","竪琴","白鯨","蜃気楼"];
+const NEBULA_SUFFIX = ["星雲","彗星群","星団","銀河","星海","深宇宙域"];
+
+function generateStarName(rng){
+  const a = NEBULA_ADJ[Math.floor(rng()*NEBULA_ADJ.length)];
+  const n = NEBULA_NOUN[Math.floor(rng()*NEBULA_NOUN.length)];
+  const s = NEBULA_SUFFIX[Math.floor(rng()*NEBULA_SUFFIX.length)];
+  return a + n + s;
+}
+
+function pad2(n){ return String(n).padStart(2,"0"); }
+function formatTime(sec){
+  sec = Math.max(0, Math.round(sec));
+  const m = Math.floor(sec/60), s = sec%60;
+  return pad2(m)+":"+pad2(s);
+}
+
+/* ===================== Device detection ===================== */
+
+const ua = navigator.userAgent;
+const isCoarsePointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+const isTouchPrimary = isCoarsePointer || ('ontouchstart' in window && !ua.includes("Mac"));
+const isMac = ua.includes("Mac") && !isTouchPrimary;
+const isWindows = ua.includes("Win") && !isTouchPrimary;
+
+/* ===================== Persistent state ===================== */
+
+const STORAGE_KEY = "spacetimer.state.v1";
+const LOG_KEY = "spacetimer.log.v1";
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(e){ return null; }
+}
+function saveState(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }catch(e){ /* storage unavailable — ignore */ }
+}
+function loadLog(){
+  try{
+    const raw = localStorage.getItem(LOG_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return []; }
+}
+function saveLog(log){
+  try{ localStorage.setItem(LOG_KEY, JSON.stringify(log)); }catch(e){}
+}
+
+const DEFAULTS = {
+  workMin: 25, breakMin: 5, longBreakMin: 15,
+  sessionIndex: 0,      // 0-based count of completed work sessions (for long-break cadence)
+  mode: "work",         // "work" | "break" | "longbreak"
+  running: false,
+  remainingSec: 25*60,
+  totalSec: 25*60,
+  seed: hashStringToSeed(String(Date.now())+Math.random()),
+  lastTick: Date.now(),
+  soundOn: true
+};
+
+let state = Object.assign({}, DEFAULTS, loadState() || {});
+// Recompute elapsed time offline (page reload / tab closed) so timer doesn't silently freeze forever
+if(state.running){
+  const elapsedWhileAway = Math.floor((Date.now() - state.lastTick)/1000);
+  state.remainingSec = Math.max(0, state.remainingSec - elapsedWhileAway);
+}
+
+let rng = mulberry32(state.seed);
+let currentStarName = generateStarName(rng);
+// re-seed rng after name draw so star field generation is independent of name draw order but still deterministic
+rng = mulberry32(state.seed ^ 0x9e3779b9);
+
+/* ===================== DOM refs ===================== */
+
+const el = {
+  timerDisplay: document.getElementById("timerDisplay"),
+  sessionLabel: document.getElementById("sessionLabel"),
+  depthReadout: document.getElementById("depthReadout"),
+  ringFg: document.getElementById("ringFg"),
+  cycleDots: document.getElementById("cycleDots"),
+  starName: document.getElementById("starName"),
+  btnStart: document.getElementById("btnStart"),
+  btnReset: document.getElementById("btnReset"),
+  btnLog: document.getElementById("btnLog"),
+  btnSound: document.getElementById("btnSound"),
+  logModal: document.getElementById("logModal"),
+  logList: document.getElementById("logList"),
+  sideLogList: document.getElementById("sideLogList"),
+  btnCloseLog: document.getElementById("btnCloseLog"),
+  btnClearLog: document.getElementById("btnClearLog"),
+  cfgWork: document.getElementById("cfgWork"),
+  cfgBreak: document.getElementById("cfgBreak"),
+  cfgLong: document.getElementById("cfgLong"),
+  hintText: document.getElementById("hintText"),
+  noticeBanner: document.getElementById("noticeBanner"),
+  starTooltip: document.getElementById("starTooltip"),
+  glitch: document.getElementById("signalGlitch"),
+  canvas: document.getElementById("starfield")
+};
+
+el.cfgWork.value = state.workMin;
+el.cfgBreak.value = state.breakMin;
+el.cfgLong.value = state.longBreakMin;
+
+const RING_CIRC = 2*Math.PI*54;
+
+/* ===================== Notice banner ===================== */
+let noticeTimer = null;
+function showNotice(msg, ms){
+  el.noticeBanner.textContent = msg;
+  el.noticeBanner.classList.add("show");
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(()=>el.noticeBanner.classList.remove("show"), ms || 2600);
+}
+
+/* ===================== Starfield canvas ===================== */
+
+const canvas = el.canvas;
+const ctx = canvas.getContext("2d");
+let dpr = Math.max(1, window.devicePixelRatio || 1);
+let W=0, H=0;
+let stars = [];
+let nebula = null;
+let comet = null;
+let parallax = { x:0, y:0, tx:0, ty:0 };
+
+function resizeCanvas(){
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+"px"; canvas.style.height = H+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// Build a deterministic star field from the session's seeded RNG.
+// Depth (0=surface/bright, 1=deep space/dark) modulates density & twinkle via a separate draw-time factor,
+// but the star positions/colors themselves are fixed per-session so "today's sky" is stable.
+function buildStarField(){
+  const count = 220;
+  stars = [];
+  for(let i=0;i<count;i++){
+    stars.push({
+      x: rng(), y: rng(),
+      r: 0.4 + rng()*1.6,
+      hueShift: rng(), // 0..1 -> used to tint star color slightly
+      twinkleSpeed: 0.5 + rng()*2.2,
+      twinklePhase: rng()*Math.PI*2,
+      layer: rng() // parallax depth layer 0..1
+    });
+  }
+  // Rare nebula cloud (about 55% chance) with random color+position
+  nebula = (rng() < 0.55) ? {
+    x: rng(), y: rng(), r: 0.25 + rng()*0.25,
+    hue: Math.floor(rng()*360)
+  } : null;
+  // Rare comet (about 35% chance)
+  comet = (rng() < 0.35) ? {
+    active: true, progress: rng()*-1, // start slightly before entering
+    y: rng()*0.6,
+    speed: 0.05 + rng()*0.05,
+    angle: 0.5 + rng()*0.3
+  } : null;
+}
+buildStarField();
+
+function depthFactor(){
+  // 0 at start of a work session (surface), 1 at deepest point (session end)
+  if(state.mode !== "work") return 0;
+  const t = 1 - (state.remainingSec / state.totalSec);
+  return Math.max(0, Math.min(1, t));
+}
+
+function lerp(a,b,t){ return a+(b-a)*t; }
+function lerpColor(c1, c2, t){
+  return [
+    Math.round(lerp(c1[0],c2[0],t)),
+    Math.round(lerp(c1[1],c2[1],t)),
+    Math.round(lerp(c1[2],c2[2],t))
+  ];
+}
+
+const SKY_SURFACE = [[130,210,255],[30,110,200]];   // bright atmosphere blue gradient
+const SKY_DEEP    = [[4,4,14],[0,0,0]];             // deep space near-black
+
+let lastFrameTime = performance.now();
+function drawFrame(now){
+  const dt = Math.min(0.05, (now-lastFrameTime)/1000);
+  lastFrameTime = now;
+
+  const depth = depthFactor();
+  const inBreak = state.mode !== "work";
+
+  // Background gradient: bright sky -> deep space; break mode = always bright ("returned to Earth")
+  const topColor = inBreak ? SKY_SURFACE[0] : lerpColor(SKY_SURFACE[0], SKY_DEEP[0], depth);
+  const botColor = inBreak ? SKY_SURFACE[1] : lerpColor(SKY_SURFACE[1], SKY_DEEP[1], depth);
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0, `rgb(${topColor.join(",")})`);
+  grad.addColorStop(1, `rgb(${botColor.join(",")})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+
+  const effectiveDepth = inBreak ? 0 : depth;
+  const starAlphaBase = inBreak ? 0.15 : lerp(0.15, 1, effectiveDepth);
+  const density = inBreak ? 0.25 : lerp(0.25, 1, effectiveDepth);
+  const visibleCount = Math.floor(stars.length * density);
+
+  for(let i=0;i<visibleCount;i++){
+    const s = stars[i];
+    const px = s.x*W + parallax.x*s.layer*40;
+    const py = s.y*H + parallax.y*s.layer*40;
+    const twinkleAmt = lerp(0.15, 1, effectiveDepth);
+    const tw = 0.6 + 0.4*Math.sin(now/1000*s.twinkleSpeed + s.twinklePhase)*twinkleAmt;
+    const hue = lerp(200, 260, s.hueShift);
+    ctx.beginPath();
+    ctx.fillStyle = `hsla(${hue}, 80%, ${85 - effectiveDepth*15}%, ${(starAlphaBase*tw).toFixed(3)})`;
+    ctx.arc(px, py, s.r*(0.6+effectiveDepth*0.6), 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Nebula: only visible deep in a work session
+  if(nebula && !inBreak && depth > 0.45){
+    const neb = Math.min(1, (depth-0.45)/0.4);
+    const nx = nebula.x*W, ny = nebula.y*H, nr = nebula.r*Math.max(W,H);
+    const ng = ctx.createRadialGradient(nx,ny,0,nx,ny,nr);
+    ng.addColorStop(0, `hsla(${nebula.hue},70%,60%,${0.22*neb})`);
+    ng.addColorStop(1, `hsla(${nebula.hue},70%,40%,0)`);
+    ctx.fillStyle = ng;
+    ctx.beginPath();
+    ctx.arc(nx, ny, nr, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Comet: streaks across during deep phase
+  if(comet && !inBreak && depth > 0.6){
+    comet.progress += comet.speed*dt;
+    if(comet.progress > 1.3) comet.progress = -0.2;
+    const cx = comet.progress*W*1.2 - W*0.1;
+    const cy = comet.y*H + comet.progress*H*comet.angle*0.3;
+    const len = 90;
+    const gx = cx - Math.cos(comet.angle)*len;
+    const gy = cy - Math.sin(comet.angle)*len;
+    const cg = ctx.createLinearGradient(cx,cy,gx,gy);
+    cg.addColorStop(0,"rgba(255,255,255,0.9)");
+    cg.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.strokeStyle = cg;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.lineTo(gx,gy);
+    ctx.stroke();
+  }
+
+  parallax.x = lerp(parallax.x, parallax.tx, 0.06);
+  parallax.y = lerp(parallax.y, parallax.ty, 0.06);
+
+  requestAnimationFrame(drawFrame);
+}
+requestAnimationFrame(drawFrame);
+
+/* Mac trackpad/pointer drag parallax
+   NOTE: the UI layer (.app) visually sits above the canvas and covers the full viewport,
+   so pointer events must be bound at the document level rather than on the canvas element,
+   which would rarely receive them (UI elements intercept hit-testing first). */
+if(isMac){
+  let dragging = false, lastX=0, lastY=0;
+  canvas.style.cursor = "grab";
+  document.addEventListener("pointerdown", e=>{
+    if(e.target.closest("button, input, a, .modal-overlay")) return; // don't hijack UI interactions
+    dragging=true; lastX=e.clientX; lastY=e.clientY; canvas.style.cursor="grabbing";
+  });
+  window.addEventListener("pointermove", e=>{
+    if(!dragging) return;
+    const dx = e.clientX-lastX, dy = e.clientY-lastY;
+    lastX=e.clientX; lastY=e.clientY;
+    parallax.tx += dx*0.15;
+    parallax.ty += dy*0.15;
+    parallax.tx = Math.max(-30, Math.min(30, parallax.tx));
+    parallax.ty = Math.max(-30, Math.min(30, parallax.ty));
+  });
+  window.addEventListener("pointerup", ()=>{ dragging=false; canvas.style.cursor="grab"; });
+}
+
+/* Windows hover tooltip on stars — same reasoning: listen at document level so it fires
+   no matter which UI layer is visually on top at the cursor position. */
+if(isWindows){
+  document.addEventListener("mousemove", e=>{
+    if(e.target.closest("button, input, a, .modal-overlay, .side-log")){
+      el.starTooltip.classList.remove("show");
+      return;
+    }
+    const mx = e.clientX, my = e.clientY;
+    let hit = null, bestDist = 14;
+    for(const s of stars){
+      const px = s.x*W, py = s.y*H;
+      const d = Math.hypot(px-mx, py-my);
+      if(d < bestDist){ hit = s; bestDist = d; }
+    }
+    if(hit){
+      el.starTooltip.textContent = `恒星 深度層 ${(hit.layer*100|0)}% ・ 光度 ${(hit.r).toFixed(1)}`;
+      el.starTooltip.style.left = (mx+14)+"px";
+      el.starTooltip.style.top = (my+14)+"px";
+      el.starTooltip.classList.add("show");
+    } else {
+      el.starTooltip.classList.remove("show");
+    }
+  });
+  document.addEventListener("mouseleave", ()=> el.starTooltip.classList.remove("show"));
+}
+
+/* ===================== Web Audio ===================== */
+
+let audioCtx = null;
+let ambientNodes = null;
+function ensureAudio(){
+  if(audioCtx) return audioCtx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return null;
+  audioCtx = new AC();
+  return audioCtx;
+}
+
+function startAmbient(){
+  if(!state.soundOn) return;
+  const ac = ensureAudio();
+  if(!ac) return;
+  if(ac.state === "suspended") ac.resume();
+  stopAmbient();
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  const filter = ac.createBiquadFilter();
+  filter.type = "lowpass";
+  osc.type = "sine";
+  osc.frequency.value = 220;
+  gain.gain.value = 0.0001;
+  osc.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+  gain.gain.linearRampToValueAtTime(0.03, ac.currentTime + 1.5);
+  osc.start();
+  ambientNodes = { osc, gain, filter };
+}
+function stopAmbient(){
+  if(ambientNodes){
+    try{
+      ambientNodes.gain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime + 0.4);
+      ambientNodes.osc.stop(audioCtx.currentTime + 0.5);
+    }catch(e){}
+    ambientNodes = null;
+  }
+}
+// Sonar-like ambient tone: pitch/filter drift with session depth
+function updateAmbient(){
+  if(!ambientNodes || !audioCtx) return;
+  const depth = depthFactor();
+  const inBreak = state.mode !== "work";
+  const targetFreq = inBreak ? 300 : lerp(220, 70, depth);
+  const targetCutoff = inBreak ? 2200 : lerp(2200, 400, depth);
+  ambientNodes.osc.frequency.linearRampToValueAtTime(targetFreq, audioCtx.currentTime + 0.8);
+  ambientNodes.filter.frequency.linearRampToValueAtTime(targetCutoff, audioCtx.currentTime + 0.8);
+}
+
+// Synthesized chime with slight randomized pitch per completion, so it's never identical twice
+function playChime(){
+  const ac = ensureAudio();
+  if(!ac) return;
+  if(ac.state === "suspended") ac.resume();
+  const baseFreqs = [523.25, 659.25, 783.99]; // C5 E5 G5
+  const detune = (Math.random()-0.5)*30;
+  baseFreqs.forEach((f, i)=>{
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = "sine";
+    osc.frequency.value = f + detune;
+    osc.connect(gain); gain.connect(ac.destination);
+    const start = ac.currentTime + i*0.14;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(0.22, start+0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start+1.1);
+    osc.start(start);
+    osc.stop(start+1.2);
+  });
+}
+
+el.btnSound.addEventListener("click", ()=>{
+  state.soundOn = !state.soundOn;
+  el.btnSound.textContent = state.soundOn ? "🔊" : "🔇";
+  el.btnSound.setAttribute("aria-pressed", String(state.soundOn));
+  if(state.soundOn && state.running) startAmbient(); else stopAmbient();
+  saveState();
+});
+el.btnSound.textContent = state.soundOn ? "🔊" : "🔇";
+el.btnSound.setAttribute("aria-pressed", String(state.soundOn));
+
+/* ===================== Notification API ===================== */
+
+let notifyPermission = (window.Notification && Notification.permission) || "unsupported";
+function requestNotifyPermission(){
+  if(!("Notification" in window)) return;
+  if(Notification.permission === "default"){
+    Notification.requestPermission().then(p=>{ notifyPermission = p; });
+  }
+}
+function notifySessionDone(title, body){
+  if("Notification" in window && Notification.permission === "granted"){
+    try{ new Notification(title, { body, silent:false }); return; }catch(e){}
+  }
+  // Fallback: on-screen banner (works regardless of Notification support/permission)
+  showNotice(title + " — " + body, 4000);
+}
+
+/* ===================== Vibration API (mobile) ===================== */
+
+function vibrateSafe(pattern){
+  if(isTouchPrimary && "vibrate" in navigator){
+    try{ navigator.vibrate(pattern); }catch(e){}
+  }
+}
+
+/* ===================== Wake Lock API ===================== */
+
+let wakeLock = null;
+async function acquireWakeLock(){
+  if(!("wakeLock" in navigator)) return;
+  try{
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", ()=>{ wakeLock = null; });
+  }catch(e){ /* ignore — e.g. not allowed in background */ }
+}
+function releaseWakeLock(){
+  if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+}
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState === "visible" && state.running){
+    acquireWakeLock();
+    triggerSignalGlitch();
+  }
+});
+
+/* ===================== Page Visibility glitch effect ===================== */
+
+function triggerSignalGlitch(){
+  el.glitch.classList.remove("active");
+  void el.glitch.offsetWidth; // restart animation
+  el.glitch.classList.add("active");
+  showNotice("信号を再確立しました", 1800);
+}
+
+/* ===================== Timer engine ===================== */
+
+let tickInterval = null;
+
+function currentTotalForMode(mode){
+  if(mode === "work") return state.workMin*60;
+  if(mode === "longbreak") return state.longBreakMin*60;
+  return state.breakMin*60;
+}
+
+function updateModeLabel(){
+  const isLong = state.mode === "longbreak";
+  el.sessionLabel.textContent = state.mode === "work" ? "集中セッション" : (isLong ? "長距離帰還休憩" : "地球帰還休憩");
+  el.sessionLabel.className = "session-label " + (state.mode === "work" ? "work" : "break");
+}
+
+function updateDepthReadout(){
+  if(state.mode !== "work"){
+    el.depthReadout.textContent = "地球圏 帰還中";
+    return;
+  }
+  const depth = depthFactor();
+  const km = Math.round(depth*4.2e8); // stylized distance up to ~ Moon distance scale
+  el.depthReadout.textContent = `深宇宙 到達距離 ${km.toLocaleString()} km`;
+}
+
+function updateCycleDots(){
+  el.cycleDots.innerHTML = "";
+  const per = 4;
+  const posInCycle = state.sessionIndex % per;
+  for(let i=0;i<per;i++){
+    const d = document.createElement("span");
+    if(i < posInCycle) d.className = "done";
+    else if(i === posInCycle && state.mode === "work") d.className = "current";
+    el.cycleDots.appendChild(d);
+  }
+}
+
+function updateStarNameDisplay(){
+  el.starName.textContent = state.mode === "work" ? ("観測領域: " + currentStarName) : "帰還航路";
+}
+
+function render(){
+  el.timerDisplay.textContent = formatTime(state.remainingSec);
+  const total = state.totalSec || 1;
+  const frac = 1 - (state.remainingSec/total);
+  el.ringFg.style.strokeDasharray = RING_CIRC;
+  el.ringFg.style.strokeDashoffset = RING_CIRC*frac;
+  // ring color: accent for work, warm for break
+  el.ringFg.style.stroke = state.mode === "work" ? "var(--accent)" : "var(--accent-warm)";
+  updateModeLabel();
+  updateDepthReadout();
+  updateCycleDots();
+  updateStarNameDisplay();
+  const startLabel = state.running ? "一時停止" : (state.remainingSec === state.totalSec ? "発進" : "再開");
+  el.btnStart.textContent = startLabel;
+  el.btnStart.setAttribute("aria-label", startLabel);
+  document.title = formatTime(state.remainingSec) + " · 宇宙探査タイマー";
+}
+
+function mobilePropulsionVibration(){
+  if(!isTouchPrimary) return;
+  // escalating "engine" pattern as session nears completion
+  const total = state.totalSec || 1;
+  const remainFrac = state.remainingSec/total;
+  if(state.mode === "work" && remainFrac <= 0.05){
+    vibrateSafe([20,40,20]);
+  }
+}
+
+function tick(){
+  const now = Date.now();
+  if(state.running){
+    state.remainingSec -= 1;
+    state.lastTick = now;
+    if(state.remainingSec <= 0){
+      completeSession();
+      return;
+    }
+    mobilePropulsionVibration();
+    updateAmbient();
+  }
+  render();
+  saveState();
+}
+
+function completeSession(){
+  const finishedMode = state.mode;
+  const finishedWorkMinutes = state.workMin;
+
+  if(finishedMode === "work"){
+    logVoyage(finishedWorkMinutes, currentStarName);
+    vibrateSafe([80,60,80,60,160]);
+    notifySessionDone("観測完了", `「${currentStarName}」の観測を終え、地球へ帰還します。`);
+  } else {
+    vibrateSafe([40,30,40]);
+    notifySessionDone("帰還完了", "地球圏を出発し、新たな深宇宙探査へ向かいます。");
+  }
+
+  playChime();
+  stopAmbient();
+  releaseWakeLock();
+
+  if(finishedMode === "work"){
+    state.sessionIndex += 1;
+    const isLongBreak = (state.sessionIndex % 4 === 0);
+    state.mode = isLongBreak ? "longbreak" : "break";
+  } else {
+    state.mode = "work";
+    // New seed each work session => new star map every time
+    state.seed = hashStringToSeed(String(Date.now()) + "-" + Math.random());
+    rng = mulberry32(state.seed);
+    currentStarName = generateStarName(rng);
+    rng = mulberry32(state.seed ^ 0x9e3779b9);
+    buildStarField();
+  }
+  state.totalSec = currentTotalForMode(state.mode);
+  state.remainingSec = state.totalSec;
+  state.running = false;
+  clearInterval(tickInterval);
+  tickInterval = null;
+  render();
+  saveState();
+}
+
+function logVoyage(minutes, name){
+  const log = loadLog();
+  log.unshift({
+    ts: Date.now(),
+    minutes,
+    name
+  });
+  if(log.length > 200) log.length = 200;
+  saveLog(log);
+  renderLog();
+}
+
+function startTimer(){
+  if(state.running) return;
+  state.running = true;
+  state.lastTick = Date.now();
+  requestNotifyPermission();
+  startAmbient();
+  acquireWakeLock();
+  tickInterval = setInterval(tick, 1000);
+  render();
+  saveState();
+}
+function pauseTimer(){
+  state.running = false;
+  clearInterval(tickInterval);
+  tickInterval = null;
+  stopAmbient();
+  releaseWakeLock();
+  render();
+  saveState();
+}
+function resetTimer(){
+  pauseTimer();
+  state.totalSec = currentTotalForMode(state.mode);
+  state.remainingSec = state.totalSec;
+  if(state.mode === "work"){
+    state.seed = hashStringToSeed(String(Date.now()) + "-reset-" + Math.random());
+    rng = mulberry32(state.seed);
+    currentStarName = generateStarName(rng);
+    rng = mulberry32(state.seed ^ 0x9e3779b9);
+    buildStarField();
+  }
+  render();
+  saveState();
+}
+
+el.btnStart.addEventListener("click", ()=>{
+  if(state.running) pauseTimer(); else startTimer();
+});
+el.btnReset.addEventListener("click", resetTimer);
+
+/* config inputs */
+function clampInt(v, min, max, fallback){
+  const n = parseInt(v,10);
+  if(isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+function applyConfigChange(){
+  state.workMin = clampInt(el.cfgWork.value, 1, 120, 25);
+  state.breakMin = clampInt(el.cfgBreak.value, 1, 60, 5);
+  state.longBreakMin = clampInt(el.cfgLong.value, 1, 90, 15);
+  el.cfgWork.value = state.workMin;
+  el.cfgBreak.value = state.breakMin;
+  el.cfgLong.value = state.longBreakMin;
+  // Only affects the timer immediately if it's not running (avoid disrupting an active session)
+  if(!state.running){
+    state.totalSec = currentTotalForMode(state.mode);
+    state.remainingSec = state.totalSec;
+    render();
+  }
+  saveState();
+}
+[el.cfgWork, el.cfgBreak, el.cfgLong].forEach(inp=>{
+  inp.addEventListener("change", applyConfigChange);
+});
+
+/* ===================== 航海日誌 (Voyage Log) UI ===================== */
+
+function fmtDate(ts){
+  const d = new Date(ts);
+  return `${d.getFullYear()}/${pad2(d.getMonth()+1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function renderLog(){
+  const log = loadLog();
+  const html = log.length === 0
+    ? '<div class="log-empty">まだ航海記録がありません。<br>最初の集中セッションを完了させましょう。</div>'
+    : log.map(entry => `
+        <div class="log-entry">
+          <div>
+            <div class="name">${entry.name}</div>
+            <div class="meta">${fmtDate(entry.ts)}</div>
+          </div>
+          <div class="meta">${entry.minutes}分 集中</div>
+        </div>
+      `).join("");
+  el.logList.innerHTML = html;
+  el.sideLogList.innerHTML = html;
+}
+renderLog();
+
+el.btnLog.addEventListener("click", ()=>{
+  el.logModal.classList.remove("hidden");
+});
+el.btnCloseLog.addEventListener("click", ()=>{
+  el.logModal.classList.add("hidden");
+});
+el.logModal.addEventListener("click", (e)=>{
+  if(e.target === el.logModal) el.logModal.classList.add("hidden");
+});
+el.btnClearLog.addEventListener("click", ()=>{
+  if(confirm("すべての航海記録を消去しますか？")){
+    saveLog([]);
+    renderLog();
+  }
+});
+
+/* show side panel content on wide layout via CSS already; JS just keeps data in sync (done in renderLog) */
+function applyResponsiveLogVisibility(){
+  const wide = window.matchMedia("(min-width: 860px) and (pointer: fine)").matches;
+  document.getElementById("sideLog").style.display = wide ? "flex" : "none";
+}
+applyResponsiveLogVisibility();
+window.addEventListener("resize", applyResponsiveLogVisibility);
+
+/* ===================== Hint text per device ===================== */
+
+if(isTouchPrimary){
+  el.hintText.textContent = "対応端末では振動で推進エンジンの合図をお届けします。";
+} else if(isMac){
+  el.hintText.textContent = "星空をドラッグすると視点がパララックスで動きます。";
+} else if(isWindows){
+  el.hintText.textContent = "星にマウスを合わせると詳細情報が表示されます。通知を許可すると帰還合図をお届けします。";
+} else {
+  el.hintText.textContent = "";
+}
+
+/* ===================== Init resume-from-storage ===================== */
+
+state.totalSec = state.totalSec || currentTotalForMode(state.mode);
+render();
+if(state.running){
+  // resume ticking without restarting session
+  requestNotifyPermission();
+  startAmbient();
+  acquireWakeLock();
+  tickInterval = setInterval(tick, 1000);
+}
+
+/* Save periodically in case of abrupt close, and on unload */
+window.addEventListener("beforeunload", ()=>{ state.lastTick = Date.now(); saveState(); });
+setInterval(saveState, 5000);
+
+})();
+</script>
+</body>
+</html>
