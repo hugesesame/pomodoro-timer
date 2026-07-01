@@ -79,6 +79,8 @@
     font-size:16px; cursor:pointer; backdrop-filter: blur(6px);
   }
   .icon-btn:active{ transform: scale(.94); }
+  .icon-btn svg{ width:18px; height:18px; display:block; stroke:currentColor; }
+  .icon-btn[aria-pressed="true"]{ color: var(--accent); }
 
   main{
     flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
@@ -234,9 +236,9 @@
       <div class="depth-readout" id="depthReadout">Surface · Altitude 0 km</div>
     </div>
     <div class="iconbar">
-      <button class="icon-btn" id="btnLog" title="Voyage Log" aria-label="Open voyage log">🗂</button>
-      <button class="icon-btn" id="btnSound" title="Sound On/Off" aria-label="Toggle sound on/off" aria-pressed="true">🔊</button>
-      <button class="icon-btn" id="btnFullscreen" title="Fullscreen" aria-label="Toggle fullscreen" aria-pressed="false">⛶</button>
+      <button class="icon-btn" id="btnLog" title="Voyage Log" aria-label="Open voyage log"></button>
+      <button class="icon-btn" id="btnSound" title="Sound On/Off" aria-label="Toggle sound on/off" aria-pressed="true"></button>
+      <button class="icon-btn" id="btnFullscreen" title="Fullscreen" aria-label="Toggle fullscreen" aria-pressed="false"></button>
     </div>
   </header>
 
@@ -468,6 +470,15 @@ const el = {
 el.cfgWork.value = state.workMin;
 el.cfgBreak.value = state.breakMin;
 el.cfgLong.value = state.longBreakMin;
+
+/* ===================== Icon-bar line icons (monochrome, currentColor) ===================== */
+const SVG_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+const ICON_LOG = `<svg ${SVG_ATTRS}><rect x="5" y="3" width="14" height="18" rx="2"></rect><line x1="8" y1="8" x2="16" y2="8"></line><line x1="8" y1="12" x2="16" y2="12"></line><line x1="8" y1="16" x2="13" y2="16"></line></svg>`;
+const ICON_SOUND_ON = `<svg ${SVG_ATTRS}><path d="M4 9v6h3l5 4V5L7 9H4z" fill="currentColor" stroke="none"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path></svg>`;
+const ICON_SOUND_OFF = `<svg ${SVG_ATTRS}><path d="M4 9v6h3l5 4V5L7 9H4z" fill="currentColor" stroke="none"></path><line x1="16" y1="9" x2="21" y2="15"></line><line x1="21" y1="9" x2="16" y2="15"></line></svg>`;
+const ICON_FULLSCREEN_ENTER = `<svg ${SVG_ATTRS}><path d="M4 9V4h5"></path><path d="M20 9V4h-5"></path><path d="M4 15v5h5"></path><path d="M20 15v5h-5"></path></svg>`;
+const ICON_FULLSCREEN_EXIT = `<svg ${SVG_ATTRS}><path d="M9 4v5H4"></path><path d="M15 4v5h5"></path><path d="M9 20v-5H4"></path><path d="M15 20v-5h5"></path></svg>`;
+el.btnLog.innerHTML = ICON_LOG;
 
 const RING_CIRC = 2*Math.PI*54;
 
@@ -749,12 +760,12 @@ function playChime(){
 
 el.btnSound.addEventListener("click", ()=>{
   state.soundOn = !state.soundOn;
-  el.btnSound.textContent = state.soundOn ? "🔊" : "🔇";
+  el.btnSound.innerHTML = state.soundOn ? ICON_SOUND_ON : ICON_SOUND_OFF;
   el.btnSound.setAttribute("aria-pressed", String(state.soundOn));
   if(state.soundOn && state.running) startAmbient(); else stopAmbient();
   saveState();
 });
-el.btnSound.textContent = state.soundOn ? "🔊" : "🔇";
+el.btnSound.innerHTML = state.soundOn ? ICON_SOUND_ON : ICON_SOUND_OFF;
 el.btnSound.setAttribute("aria-pressed", String(state.soundOn));
 
 /* ===================== Fullscreen ===================== */
@@ -773,6 +784,7 @@ const fsSupported = !!(fsRequestFn(document.documentElement) && fsExitFn());
 if(!fsSupported){
   el.btnFullscreen.style.display = "none";
 }else{
+  el.btnFullscreen.innerHTML = ICON_FULLSCREEN_ENTER;
   el.btnFullscreen.addEventListener("click", ()=>{
     if(fsElement()){
       fsExitFn().call(document);
@@ -784,7 +796,7 @@ if(!fsSupported){
   ["fullscreenchange","webkitfullscreenchange","MSFullscreenChange"].forEach(evt=>{
     document.addEventListener(evt, ()=>{
       const active = !!fsElement();
-      el.btnFullscreen.textContent = active ? "⛝" : "⛶";
+      el.btnFullscreen.innerHTML = active ? ICON_FULLSCREEN_EXIT : ICON_FULLSCREEN_ENTER;
       el.btnFullscreen.setAttribute("aria-pressed", String(active));
     });
   });
