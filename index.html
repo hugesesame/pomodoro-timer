@@ -689,7 +689,6 @@ if(isWindows){
 /* ===================== Web Audio ===================== */
 
 let audioCtx = null;
-let ambientNodes = null;
 function ensureAudio(){
   if(audioCtx) return audioCtx;
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -698,46 +697,9 @@ function ensureAudio(){
   return audioCtx;
 }
 
-function startAmbient(){
-  if(!state.soundOn) return;
-  const ac = ensureAudio();
-  if(!ac) return;
-  if(ac.state === "suspended") ac.resume();
-  stopAmbient();
-  const osc = ac.createOscillator();
-  const gain = ac.createGain();
-  const filter = ac.createBiquadFilter();
-  filter.type = "lowpass";
-  osc.type = "sine";
-  osc.frequency.value = 220;
-  gain.gain.value = 0.0001;
-  osc.connect(filter); filter.connect(gain); gain.connect(ac.destination);
-  gain.gain.linearRampToValueAtTime(0.03, ac.currentTime + 1.5);
-  osc.start();
-  ambientNodes = { osc, gain, filter };
-}
-function stopAmbient(){
-  if(ambientNodes){
-    try{
-      ambientNodes.gain.gain.linearRampToValueAtTime(0.0001, audioCtx.currentTime + 0.4);
-      ambientNodes.osc.stop(audioCtx.currentTime + 0.5);
-    }catch(e){}
-    ambientNodes = null;
-  }
-}
-// Sonar-like ambient tone: pitch/filter drift with session depth
-function updateAmbient(){
-  if(!ambientNodes || !audioCtx) return;
-  const depth = depthFactor();
-  const inBreak = state.mode !== "work";
-  const targetFreq = inBreak ? 300 : lerp(220, 70, depth);
-  const targetCutoff = inBreak ? 2200 : lerp(2200, 400, depth);
-  ambientNodes.osc.frequency.linearRampToValueAtTime(targetFreq, audioCtx.currentTime + 0.8);
-  ambientNodes.filter.frequency.linearRampToValueAtTime(targetCutoff, audioCtx.currentTime + 0.8);
-}
-
 // Synthesized chime with slight randomized pitch per completion, so it's never identical twice
 function playChime(){
+  if(!state.soundOn) return;
   const ac = ensureAudio();
   if(!ac) return;
   if(ac.state === "suspended") ac.resume();
@@ -762,7 +724,6 @@ el.btnSound.addEventListener("click", ()=>{
   state.soundOn = !state.soundOn;
   el.btnSound.innerHTML = state.soundOn ? ICON_SOUND_ON : ICON_SOUND_OFF;
   el.btnSound.setAttribute("aria-pressed", String(state.soundOn));
-  if(state.soundOn && state.running) startAmbient(); else stopAmbient();
   saveState();
 });
 el.btnSound.innerHTML = state.soundOn ? ICON_SOUND_ON : ICON_SOUND_OFF;
@@ -936,7 +897,6 @@ function tick(){
       return;
     }
     mobilePropulsionVibration();
-    updateAmbient();
   }
   render();
   saveState();
@@ -956,7 +916,6 @@ function completeSession(){
   }
 
   playChime();
-  stopAmbient();
   releaseWakeLock();
 
   if(finishedMode === "work"){
@@ -1003,7 +962,6 @@ function startTimer(){
   state.running = true;
   state.lastTick = Date.now();
   requestNotifyPermission();
-  startAmbient();
   acquireWakeLock();
   tickInterval = setInterval(tick, 1000);
   render();
@@ -1013,7 +971,6 @@ function pauseTimer(){
   state.running = false;
   clearInterval(tickInterval);
   tickInterval = null;
-  stopAmbient();
   releaseWakeLock();
   render();
   saveState();
@@ -1161,7 +1118,6 @@ render();
 if(state.running){
   // resume ticking without restarting session
   requestNotifyPermission();
-  startAmbient();
   acquireWakeLock();
   tickInterval = setInterval(tick, 1000);
 }
