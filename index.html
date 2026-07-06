@@ -862,9 +862,9 @@ function updateStarNameDisplay(){
 function render(){
   el.timerDisplay.textContent = formatTime(state.remainingSec);
   const total = state.totalSec || 1;
-  const frac = 1 - (state.remainingSec/total);
+  const remainingFrac = state.remainingSec/total;
   el.ringFg.style.strokeDasharray = RING_CIRC;
-  el.ringFg.style.strokeDashoffset = RING_CIRC*frac;
+  el.ringFg.style.strokeDashoffset = RING_CIRC*remainingFrac;
   // ring color: accent for work, warm for break
   el.ringFg.style.stroke = state.mode === "work" ? "var(--accent)" : "var(--accent-warm)";
   updateModeLabel();
