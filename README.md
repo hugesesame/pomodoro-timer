@@ -1,5 +1,7 @@
 # Deep Space Pomodoro Timer
 
+**[▶ Try it live](https://pomodoro-timer-eight-pi.vercel.app)**
+
 A Pomodoro timer that turns every focus session into a voyage into deep space.
 The sky darkens as you concentrate, stars emerge one by one, and each completed
 session is recorded in your voyage log as another few million kilometers traveled.
