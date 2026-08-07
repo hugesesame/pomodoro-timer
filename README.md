@@ -6,7 +6,7 @@ A Pomodoro timer that turns every focus session into a voyage into deep space.
 The sky darkens as you concentrate, stars emerge one by one, and each completed
 session is recorded in your voyage log as another few million kilometers traveled.
 
-![Deep Space Pomodoro Timer near the end of a focus session — the progress ring almost closed over a near-black starfield with a comet streaking past, and the Voyage Log panel showing 500,000 km travelled and the Moon milestone reached](docs/screenshot.jpg)
+![Deep Space Pomodoro Timer near the end of a focus session — the progress ring almost closed over a near-black starfield lit by a faint nebula, and the Voyage Log panel showing 600,000 km travelled and the Moon milestone reached](docs/screenshot.jpg)
 
 *Late in a focus session. The sky began as bright daylight blue and has darkened
 into deep space as the timer ran down.*
