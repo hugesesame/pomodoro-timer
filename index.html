@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Deep Space Pomodoro Timer</title>
+<!-- The progress ring, inline so the page stays a single file. Mid-tone cyan rather
+     than the in-app --accent, which washes out against a light browser tab. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%233aa8d8' stroke-width='5' stroke-linecap='round' stroke-dasharray='55 14' transform='rotate(-90 16 16)'/%3E%3C/svg%3E">
 <style>
   :root{
     --ui-bg: rgba(10, 14, 30, 0.55);
@@ -94,9 +97,13 @@
     min-height:0;
   }
 
+  /* Chipped for the same reason as .readout-panel: over the bright surface sky a
+     light glyph on its own measures ~1.3:1, and no single text colour can hold up
+     at both ends of a gradient that runs from near-white to near-black. */
   .session-label{
     font-size: 13px; letter-spacing:.18em; text-transform:uppercase; color: var(--text-dim);
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    background: var(--ui-bg-strong); border:1px solid var(--ui-border);
+    border-radius: 999px; padding: 6px 16px; backdrop-filter: blur(6px);
   }
   .session-label.work{ color: var(--accent); }
   .session-label.break{ color: var(--accent-warm); }
@@ -134,9 +141,12 @@
   .btn:active{ transform: scale(.96); }
   .btn.small{ padding: 8px 14px; font-size:12px; min-width:auto; }
 
+  /* One chip around the whole row rather than three around each label, which
+     would read as clutter. */
   .settings-row{
     display:flex; gap:10px; justify-content:center; flex-wrap:wrap; font-size:12px; color:var(--text-dim);
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    background: var(--ui-bg-strong); border:1px solid var(--ui-border);
+    border-radius: 14px; padding: 10px 14px; backdrop-filter: blur(6px);
   }
   .settings-row label{ display:flex; flex-direction:column; align-items:center; gap:4px; }
   .settings-row input[type=number]{
@@ -168,6 +178,7 @@
     font-size:13px;
   }
   .log-entry .name{ color: var(--accent); font-weight:600; }
+  .log-entry .name.sighting{ color: var(--accent-warm); }
   .log-entry .meta{ color:var(--text-dim); font-size:11px; }
 
   .milestone-summary{
@@ -404,7 +415,11 @@ function saveTotalFocusMin(v){
 // One-time backfill so users who already logged sessions before this feature existed don't start at zero.
 function ensureTotalFocusMinInitialized(){
   if(localStorage.getItem(TOTAL_FOCUS_MIN_KEY) === null){
-    const backfill = loadLog().reduce((sum, e) => sum + e.minutes, 0);
+    // Sighting entries carry no `minutes`; without the fallback one of them turns
+    // the whole total into NaN, taking the distance readout and every milestone
+    // with it. This path only runs once, on a profile that has never stored a
+    // total, so the failure would surface long after the change that caused it.
+    const backfill = loadLog().reduce((sum, e) => sum + (e.minutes || 0), 0);
     saveTotalFocusMin(backfill);
   }
 }
@@ -568,6 +583,214 @@ function lerpColor(c1, c2, t){
 const SKY_SURFACE = [[130,210,255],[30,110,200]];   // bright atmosphere blue gradient
 const SKY_DEEP    = [[4,4,14],[0,0,0]];             // deep space near-black
 
+/* ===================== Sky events (scheduled, transient) =====================
+   Distinct from the nebula and comet above: those are drawn from the session seed
+   and either exist for the whole session or not at all. These are occurrences —
+   scheduled, alive for a few seconds, then gone.
+
+   They use Math.random() rather than the seeded rng() on purpose. Drawing from
+   rng() here would shift its sequence and so change the star field itself, and an
+   occurrence is not part of "today's sky" anyway.
+
+   Adding another kind of event (aurora, eclipse) means one more entry in
+   SKY_EVENTS plus its three functions; nothing else here needs to change. */
+
+let activeEvents = [];    // running instances
+const nextEventIn = {};   // event type -> seconds until the next one fires
+
+function randRange(a, b){ return a + Math.random()*(b-a); }
+
+const SKY_EVENTS = {
+  ufo: {
+    gap: [210, 390],                    // ~5 min apart on average
+    canRun: () => true,                 // silhouette by day, lit in deep space
+    spawn: spawnUfo, update: updateUfo, draw: drawUfo
+  },
+  meteors: {
+    gap: [300, 600],
+    canRun: () => depthFactor() > 0.45, // a streak of light needs a dark sky
+    spawn: spawnMeteors, update: updateMeteors, draw: drawMeteors
+  }
+};
+
+function rearmSkyEvents(){
+  for(const type in SKY_EVENTS) nextEventIn[type] = randRange(...SKY_EVENTS[type].gap);
+}
+rearmSkyEvents();
+
+// Called whenever the session changes (completion, break, reset). Anything still
+// in flight is dropped rather than carried over, which also means a close
+// encounter cut short never reaches the log — see updateUfo.
+function clearSkyEvents(){
+  activeEvents = [];
+  rearmSkyEvents();
+}
+
+function updateSkyEvents(dt){
+  // Everything advances only while a focus session is actually counting down.
+  // An app left open, or paused, must not accumulate sightings — the record is
+  // meant to say "met while you were focusing".
+  if(state.mode !== "work" || !state.running) return;
+
+  for(const type in SKY_EVENTS){
+    const def = SKY_EVENTS[type];
+    if(!def.canRun()) continue;
+    nextEventIn[type] -= dt;
+    if(nextEventIn[type] <= 0){
+      activeEvents.push(def.spawn());
+      nextEventIn[type] = randRange(...def.gap);
+    }
+  }
+
+  for(let i = activeEvents.length - 1; i >= 0; i--){
+    const ev = activeEvents[i];
+    ev.age += dt;
+    SKY_EVENTS[ev.type].update(ev, dt);
+    if(ev.age > ev.ttl) activeEvents.splice(i, 1);
+  }
+}
+
+function drawSkyEvents(depth){
+  for(const ev of activeEvents) SKY_EVENTS[ev.type].draw(ev, depth);
+}
+
+/* --- UFO ---------------------------------------------------------------------
+   Two variants from one definition: most passes are distant and leave no trace,
+   while a rare close one is slower, larger and recorded. That split is what lets
+   sightings stay frequent enough to be worth watching for without burying the
+   focus records in the log. */
+
+const UFO_CLOSE_CHANCE = 1/8;   // ≈ one close encounter per 1.6 focus sessions
+
+function spawnUfo(){
+  const close = Math.random() < UFO_CLOSE_CHANCE;
+  // Avoid the middle band, where the timer ring sits.
+  const band = Math.random() < 0.5 ? [0.15, 0.40] : [0.65, 0.85];
+  return {
+    type: "ufo", age: 0,
+    ttl: close ? 14 : 8,
+    close,
+    dir: Math.random() < 0.5 ? 1 : -1,
+    y: randRange(band[0], band[1]),
+    width: close ? 70 : 24,
+    wobblePhase: randRange(0, Math.PI*2),
+    logged: false
+  };
+}
+
+function updateUfo(ev){
+  // Recorded only once it has left the screen, so a pass interrupted by the end
+  // of a session produces nothing.
+  if(ev.close && !ev.logged && ev.age >= ev.ttl){
+    ev.logged = true;
+    logSighting();
+  }
+}
+
+function drawUfo(ev, depth){
+  const t = ev.age/ev.ttl;
+  const travel = ev.dir > 0 ? t : 1 - t;
+  const x = -0.1*W + travel*W*1.2;
+  const y = ev.y*H + (ev.close ? Math.sin(ev.age*0.9 + ev.wobblePhase)*10 : 0);
+  const w = ev.width, h = w*0.42;
+
+  ctx.save();
+  ctx.translate(x, y);
+  // The same craft read two ways, cross-faded on depth so there is no frame where
+  // it visibly switches: backlit against the bright surface sky, lit once the sky
+  // has gone dark.
+  if(depth < 1){
+    ctx.globalAlpha = 1 - depth;
+    drawUfoShape(w, h, "#06182c", null);
+  }
+  if(depth > 0){
+    ctx.globalAlpha = depth;
+    ctx.shadowColor = "rgba(127,216,255,0.9)";
+    ctx.shadowBlur = ev.close ? 18 : 8;
+    drawUfoShape(w, h, "#7fd8ff", "#eaf6ff");
+  }
+  ctx.restore();
+}
+
+function drawUfoShape(w, h, bodyColor, domeColor){
+  const rx = w/2, ry = h/2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry*0.55, 0, 0, Math.PI*2);
+  ctx.fillStyle = bodyColor;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(0, -ry*0.3, rx*0.45, ry*0.75, 0, Math.PI, 0);
+  ctx.fillStyle = domeColor || bodyColor;
+  ctx.fill();
+  if(domeColor){   // underside lights read as lights only on the lit version
+    ctx.fillStyle = "#ffb37f";
+    for(const lx of [-rx*0.5, 0, rx*0.5]){
+      ctx.beginPath();
+      ctx.arc(lx, ry*0.3, Math.max(1, rx*0.07), 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+}
+
+/* --- Meteor shower ----------------------------------------------------------
+   Every streak runs outward from one off-screen radiant, the way a real shower
+   does. Without that shared origin this reads as unrelated lines appearing at
+   random, which is a different and much cheaper effect. */
+
+function spawnMeteors(){
+  const ttl = 12;
+  const streaks = [];
+  const count = Math.round(randRange(8, 14));
+  for(let i = 0; i < count; i++){
+    streaks.push({
+      delay: randRange(0, ttl - 2),
+      life: randRange(0.5, 1.1),
+      // Anchored where it appears on screen rather than at a distance along the
+      // ray: the radiant sits just off the top edge, so anything placed by
+      // distance lands below the viewport.
+      ax: randRange(0.03, 0.97),
+      ay: randRange(0.05, 0.85),
+      len: randRange(45, 110),
+      travel: randRange(60, 140)
+    });
+  }
+  return {
+    type: "meteors", age: 0, ttl, streaks,
+    radiant: { x: randRange(-0.2, 1.2), y: randRange(-0.6, -0.2) }
+  };
+}
+
+function updateMeteors(){ /* each streak is derived from age; nothing to advance */ }
+
+function drawMeteors(ev){
+  const rx = ev.radiant.x*W, ry = ev.radiant.y*H;
+  for(const s of ev.streaks){
+    const t = (ev.age - s.delay)/s.life;
+    if(t < 0 || t > 1) continue;
+    // Direction is whatever points away from the radiant, so every tail lines up
+    // back towards the same origin — that shared origin is what makes a scatter
+    // of streaks read as one shower.
+    const ox = s.ax*W, oy = s.ay*H;
+    const dx = ox - rx, dy = oy - ry;
+    const mag = Math.hypot(dx, dy) || 1;
+    const ux = dx/mag, uy = dy/mag;
+
+    const hx = ox + ux*t*s.travel, hy = oy + uy*t*s.travel;
+    const tx = hx - ux*s.len,      ty = hy - uy*s.len;
+
+    const fade = Math.sin(t*Math.PI);             // in and out over its life
+    const g = ctx.createLinearGradient(hx, hy, tx, ty);
+    g.addColorStop(0, `rgba(255,255,255,${(0.95*fade).toFixed(3)})`);
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(hx, hy);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+  }
+}
+
 let lastFrameTime = performance.now();
 function drawFrame(now){
   const dt = Math.min(0.05, (now-lastFrameTime)/1000);
@@ -619,7 +842,10 @@ function drawFrame(now){
   // Comet: streaks across during deep phase
   if(comet && !inBreak && depth > 0.6){
     comet.progress += comet.speed*dt;
-    if(comet.progress > 1.3) comet.progress = -0.2;
+    // One pass, then it is gone for the session. It used to loop back and streak
+    // across forever, which both cheapened it and — now that meteor showers share
+    // this sky — would keep the screen permanently busy.
+    if(comet.progress > 1.3){ comet = null; }
     const cx = comet.progress*W*1.2 - W*0.1;
     const cy = comet.y*H + comet.progress*H*comet.angle*0.3;
     const len = 90;
@@ -635,6 +861,9 @@ function drawFrame(now){
     ctx.lineTo(gx,gy);
     ctx.stroke();
   }
+
+  updateSkyEvents(dt);
+  drawSkyEvents(effectiveDepth);
 
   parallax.x = lerp(parallax.x, parallax.tx, 0.06);
   parallax.y = lerp(parallax.y, parallax.ty, 0.06);
@@ -924,6 +1153,7 @@ function completeSession(){
 
   playChime();
   releaseWakeLock();
+  clearSkyEvents();
 
   if(finishedMode === "work"){
     state.sessionIndex += 1;
@@ -964,6 +1194,17 @@ function logVoyage(minutes, name){
   checkMilestonesCrossed(beforeMin, afterMin);
 }
 
+// Sightings share the voyage log so the two read as one timeline, but carry no
+// `minutes` — every consumer of the log must tolerate that (see the backfill in
+// ensureTotalFocusMinInitialized and the branch in renderLog).
+function logSighting(){
+  const log = loadLog();
+  log.unshift({ ts: Date.now(), kind: "ufo", name: "Unidentified Craft" });
+  if(log.length > 200) log.length = 200;
+  saveLog(log);
+  renderLog();
+}
+
 function startTimer(){
   if(state.running) return;
   state.running = true;
@@ -984,6 +1225,7 @@ function pauseTimer(){
 }
 function resetTimer(){
   pauseTimer();
+  clearSkyEvents();
   state.totalSec = currentTotalForMode(state.mode);
   state.remainingSec = state.totalSec;
   if(state.mode === "work"){
@@ -1066,15 +1308,18 @@ function renderLog(){
   const summaryHtml = renderMilestoneSummary();
   const entriesHtml = log.length === 0
     ? '<div class="log-empty">No voyage records yet.<br>Complete your first focus session to begin.</div>'
-    : log.map(entry => `
+    : log.map(entry => {
+        const sighting = entry.kind === "ufo";
+        return `
         <div class="log-entry">
           <div>
-            <div class="name">${entry.name}</div>
+            <div class="name${sighting ? " sighting" : ""}">${entry.name}</div>
             <div class="meta">${fmtDate(entry.ts)}</div>
           </div>
-          <div class="meta">${entry.minutes} min focus</div>
+          <div class="meta">${sighting ? "sighting" : entry.minutes + " min focus"}</div>
         </div>
-      `).join("");
+      `;
+      }).join("");
   const html = summaryHtml + entriesHtml;
   el.logList.innerHTML = html;
   el.sideLogList.innerHTML = html;
