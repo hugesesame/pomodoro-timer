@@ -1014,9 +1014,15 @@ if(!fsSupported){
 /* ===================== Notification API ===================== */
 
 let notifyPermission = (window.Notification && Notification.permission) || "unsupported";
+// Opened from a file: URL there is nowhere to store the answer, so
+// Notification.permission reads "default" again the moment the prompt closes.
+// Without this flag the prompt reappears on every Launch, forever.
+let notifyPermissionAsked = false;
 function requestNotifyPermission(){
   if(!("Notification" in window)) return;
+  if(notifyPermissionAsked) return;
   if(Notification.permission === "default"){
+    notifyPermissionAsked = true;
     Notification.requestPermission().then(p=>{ notifyPermission = p; });
   }
 }
