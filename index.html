@@ -793,6 +793,12 @@ function drawMeteors(ev){
 
 let lastFrameTime = performance.now();
 function drawFrame(now){
+  // Queued before anything can throw. Scheduled at the end instead, a single bad
+  // frame kills the loop for the rest of the session: the sky freezes, and the
+  // next canvas resize (entering fullscreen) blanks it to the black page
+  // background with nothing left to repaint it.
+  requestAnimationFrame(drawFrame);
+
   const dt = Math.min(0.05, (now-lastFrameTime)/1000);
   lastFrameTime = now;
 
@@ -845,21 +851,24 @@ function drawFrame(now){
     // One pass, then it is gone for the session. It used to loop back and streak
     // across forever, which both cheapened it and — now that meteor showers share
     // this sky — would keep the screen permanently busy.
-    if(comet.progress > 1.3){ comet = null; }
-    const cx = comet.progress*W*1.2 - W*0.1;
-    const cy = comet.y*H + comet.progress*H*comet.angle*0.3;
-    const len = 90;
-    const gx = cx - Math.cos(comet.angle)*len;
-    const gy = cy - Math.sin(comet.angle)*len;
-    const cg = ctx.createLinearGradient(cx,cy,gx,gy);
-    cg.addColorStop(0,"rgba(255,255,255,0.9)");
-    cg.addColorStop(1,"rgba(255,255,255,0)");
-    ctx.strokeStyle = cg;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx,cy);
-    ctx.lineTo(gx,gy);
-    ctx.stroke();
+    if(comet.progress > 1.3){
+      comet = null;
+    }else{
+      const cx = comet.progress*W*1.2 - W*0.1;
+      const cy = comet.y*H + comet.progress*H*comet.angle*0.3;
+      const len = 90;
+      const gx = cx - Math.cos(comet.angle)*len;
+      const gy = cy - Math.sin(comet.angle)*len;
+      const cg = ctx.createLinearGradient(cx,cy,gx,gy);
+      cg.addColorStop(0,"rgba(255,255,255,0.9)");
+      cg.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.strokeStyle = cg;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.lineTo(gx,gy);
+      ctx.stroke();
+    }
   }
 
   updateSkyEvents(dt);
@@ -867,8 +876,6 @@ function drawFrame(now){
 
   parallax.x = lerp(parallax.x, parallax.tx, 0.06);
   parallax.y = lerp(parallax.y, parallax.ty, 0.06);
-
-  requestAnimationFrame(drawFrame);
 }
 requestAnimationFrame(drawFrame);
 
